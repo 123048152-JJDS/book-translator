@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{{ book.title }} — Traducción</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <!-- Tesseract.js CDN for client-side OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --ink: #0f0e17;
+      --parchment: #fffbf2;
+      --accent: #e84855;
+      --gold: #c9a84c;
+      --muted: #8a8a9a;
+      --surface: #ffffff;
+      --border: #e5e0d8;
+      --done: #2ecc71;
+      --pending: #f39c12;
+      --blue: #3a86ff;
+      --shadow: 0 4px 24px rgba(15,14,23,.08);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--parchment); color: var(--ink); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Header ── */
+    header {
+      background: var(--ink);
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      height: 56px;
+      flex-shrink: 0;
+    }
+    .back-btn { color: var(--parchment); text-decoration: none; font-size: .85rem; opacity: .7; transition: opacity .15s; }
+    .back-btn:hover { opacity: 1; }
+    .book-name { font-family: 'Playfair Display', serif; color: var(--parchment); font-size: 1.1rem; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .header-actions { display: flex; gap: .6rem; }
+
+    /* ── Body layout ── */
+    .workspace { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar (page list) ── */
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1.5px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header { padding: .8rem 1rem; border-bottom: 1px solid var(--border); font-size: .8rem; color: var(--muted); font-weight: 500; display: flex; align-items: center; justify-content: space-between; }
+    .page-list { flex: 1; overflow-y: auto; padding: .4rem; }
+    .page-thumb {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .55rem .7rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: .82rem;
+      transition: background .15s;
+    }
+    .page-thumb:hover { background: var(--parchment); }
+    .page-thumb.active { background: var(--ink); color: var(--parchment); }
+    .page-thumb .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-done { background: var(--done); }
+    .dot-pending { background: var(--pending); }
+    .dot-in_progress { background: var(--blue); }
+    .page-thumb img { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      margin: .6rem;
+      padding: .8rem;
+      text-align: center;
+      font-size: .78rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .upload-zone:hover { border-color: var(--gold); background: #fffbf2; }
+    .upload-zone input { display: none; }
+
+    /* ── Main editor ── */
+    .editor {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    .image-panel {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      background: #f5f3ef;
+      display: flex;
+      flex-direction: column;
+    }
+    .no-page { text-align: center; color: var(--muted); padding: 4rem 2rem; }
+    .no-page .icon { font-size: 3rem; margin-bottom: 1rem; }
+
+    .translation-panel {
+      width: 380px;
+      flex-shrink: 0;
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .t-header { padding: .9rem 1.2rem; border-bottom: 1px solid var(--border); font-size: .78rem; color: var(--muted); font-weight: 500; display: flex; align-items: center; justify-content: space-between; }
+    .t-body { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .9rem; }
+
+    .field-label { font-size: .78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: .3rem; }
+    textarea.t-area {
+      width: 100%;
+      resize: vertical;
+      min-height: 110px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: .7rem .9rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: .9rem;
+      background: var(--parchment);
+      color: var(--ink);
+      outline: none;
+      transition: border-color .15s;
+    }
+    textarea.t-area:focus { border-color: var(--ink); }
+    textarea.t-area.translation { min-height: 160px; }
+
+    .status-row { display: flex; align-items: center; gap: .5rem; }
+    .status-select {
+      font-size: .72rem;
+      font-weight: 600;
+      padding: .2rem .7rem;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      outline: none;
+      transition: all 0.15s;
+    }
+    .status-select.pending { background: #fef3cd; color: #8a6800; border-color: #ffe8a1; }
+    .status-select.in_progress { background: #dce9ff; color: #1a4fa0; border-color: #b8d4ff; }
+    .status-select.done { background: #d4f5e2; color: #1a7a46; border-color: #a3ebc2; }
+
+    .save-btn {
+      margin: 0 1rem 1rem;
+      width: calc(100% - 2rem);
+      padding: .75rem;
+      border-radius: 10px;
+      border: none;
+      background: var(--ink);
+      color: var(--parchment);
+      font-family: 'DM Sans', sans-serif;
+      font-size: .95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .18s;
+    }
+    .save-btn:hover { background: #2a2940; }
+    .save-btn.saved { background: #1a7a46; }
+
+    /* ── Buttons ── */
+    .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem 1rem; border-radius: 8px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: .82rem; font-weight: 500; transition: all .18s; }
+    .btn-ghost { background: rgba(255,255,255,.1); color: var(--parchment); border: 1px solid rgba(255,255,255,.2); }
+    .btn-ghost:hover { background: rgba(255,255,255,.2); }
+    .btn-gold { background: var(--gold); color: var(--ink); }
+    .btn-gold:hover { filter: brightness(1.1); }
+
+    /* ── Toast ── */
+    .toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; flex-direction: column; gap: .5rem; z-index: 999; }
+    .toast { background: var(--ink); color: var(--parchment); padding: .6rem 1rem; border-radius: 10px; font-size: .85rem; animation: fadeIn .2s ease; }
+    .toast.success { border-left: 4px solid var(--done); }
+    .toast.error { border-left: 4px solid var(--accent); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; } }
+
+    /* ── Upload modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(15,14,23,.55);
+      backdrop-filter: blur(4px);
+      z-index: 300;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .modal-overlay.open { display: flex; }
+    .upload-modal {
+      background: var(--surface);
+      border-radius: 18px 18px 18px 18px;
+      padding: 1.4rem;
+      width: 100%;
+      max-width: 420px;
+      animation: slideUp .22s ease;
+    }
+    @keyframes slideUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+    .upload-modal-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      text-align: center;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .upload-option {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: 100%;
+      padding: .9rem 1rem;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      background: var(--parchment);
+      cursor: pointer;
+      margin-bottom: .7rem;
+      text-align: left;
+      transition: border-color .15s, background .15s;
+    }
+    .upload-option:hover { border-color: var(--gold); background: #fffdf5; }
+    .upload-option-icon { font-size: 1.8rem; flex-shrink: 0; }
+    .upload-option-label { font-weight: 600; font-size: .95rem; color: var(--ink); }
+    .upload-option-sub { font-size: .78rem; color: var(--muted); margin-top: .1rem; }
+    .upload-option-cancel {
+      width: 100%;
+      padding: .75rem;
+      border: none;
+      border-radius: 10px;
+      background: var(--border);
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: .9rem;
+      cursor: pointer;
+      margin-top: .3rem;
+      transition: background .15s;
+    }
+    .upload-option-cancel:hover { background: #d5d0c8; }
+
+    /* ── Zoom/Rotation controls ── */
+    .image-controls {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      z-index: 10;
+      display: flex;
+      gap: .4rem;
+      background: rgba(15, 14, 23, 0.85);
+      padding: .4rem;
+      border-radius: 8px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .control-btn {
+      background: transparent;
+      border: none;
+      color: var(--parchment);
+      font-size: 1rem;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: background .15s;
+    }
+    .control-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+    .image-viewport {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    #mainImage {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      transition: transform 0.2s ease-out;
+      transform-origin: center center;
+    }
+    .image-footer-info {
+      position: absolute;
+      bottom: .5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: .75rem;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.8);
+      padding: .2rem .6rem;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* ── Reorder actions in page-thumb ── */
+    .reorder-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-left: auto;
+    }
+    .reorder-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.65rem;
+      padding: 2px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .page-thumb.active .reorder-btn {
+      color: var(--border);
+    }
+    .reorder-btn:hover {
+      color: var(--gold) !important;
+    }
+
+    /* ── Mobile adjustments ── */
+    @media (max-width: 768px) {
+      .sidebar { width: 64px; }
+      .sidebar .page-list { padding: .2rem; }
+      .page-thumb span, .page-thumb img { display: none; }
+      .page-thumb { justify-content: center; padding: .6rem; }
+      .upload-zone span { display: none; }
+      .translation-panel { width: 100%; position: fixed; bottom: 0; left: 0; right: 0; height: 60vh; border-left: none; border-top: 2px solid var(--border); transform: translateY(100%); transition: transform .3s; z-index: 50; }
+      .translation-panel.open { transform: translateY(0); }
+      .editor { flex-direction: column; }
+    }
+  </style>
+</head>
+<body data-book-id="{{ book.id }}">
+
+<header>
+  <a href="/" class="back-btn">← Libros</a>
+  <div class="book-name">{{ book.title }}</div>
+  <div class="header-actions">
+    <a href="/api/books/{{ book.id }}/export/docx" class="btn btn-ghost">⬇️ Exportar Word</a>
+  </div>
+</header>
+
+<div class="workspace">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span id="pageCount">0 páginas</span>
+    </div>
+    <div class="page-list" id="pageList"></div>
+    <!-- Botón de subir — abre el menú de opciones -->
+    <div class="upload-zone" id="uploadZone" onclick="openUploadMenu()">
+      <div>📷</div>
+      <span>Subir imagen</span>
+    </div>
+    <!-- Inputs ocultos: uno para galería, otro para cámara -->
+    <input type="file" id="fileInputGallery" accept="image/*" multiple style="display:none">
+    <input type="file" id="fileInputCamera"  accept="image/*" capture="environment" style="display:none">
+  </aside>
+
+  <!-- Modal de opciones de subida -->
+  <div class="modal-overlay" id="uploadModal">
+    <div class="upload-modal">
+      <div class="upload-modal-title">Agregar página</div>
+      <button class="upload-option" onclick="triggerGallery()">
+        <span class="upload-option-icon">🖼️</span>
+        <div>
+          <div class="upload-option-label">Elegir desde galería</div>
+          <div class="upload-option-sub">Selecciona una o varias imágenes</div>
+        </div>
+      </button>
+      <button class="upload-option" onclick="triggerCamera()">
+        <span class="upload-option-icon">📷</span>
+        <div>
+          <div class="upload-option-label">Tomar foto</div>
+          <div class="upload-option-sub">Abre la cámara del dispositivo</div>
+        </div>
+      </button>
+      <button class="upload-option-cancel" onclick="closeUploadMenu()">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Editor -->
+  <div class="editor">
+    <div class="image-panel" id="imagePanel">
+      <div class="no-page">
+        <div class="icon">🖼️</div>
+        <p>Selecciona o sube una página para comenzar</p>
+      </div>
+    </div>
+
+    <div class="translation-panel" id="translationPanel">
+      <div class="t-header">
+        <span id="pageLabel">Sin página seleccionada</span>
+        <div class="status-row">
+          <select class="status-select pending" id="statusSelect" onchange="changeStatus()">
+            <option value="pending">pendiente</option>
+            <option value="in_progress">en progreso</option>
+            <option value="done">listo</option>
+          </select>
+        </div>
+      </div>
+      <div class="t-body">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: .3rem;">
+            <div class="field-label" style="margin-bottom: 0;">Texto original ({{ book.source_language }})</div>
+            <button class="btn btn-ghost btn-sm" id="ocrBtn" onclick="performOCR()" style="padding: 0.15rem 0.5rem; font-size: 0.7rem; border-color: var(--gold); color: var(--ink); background: var(--parchment);" title="Extraer texto de la imagen usando OCR">🔍 Escanear texto</button>
+          </div>
+          <textarea class="t-area" id="originalText" placeholder="Escribe o pega el texto original aquí o usa el botón Escanear texto…"></textarea>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: .3rem;">
+            <div class="field-label" style="margin-bottom: 0;">Traducción ({{ book.target_language }})</div>
+            <button class="btn btn-ghost btn-sm" id="transBtn" onclick="suggestTranslation()" style="padding: 0.15rem 0.5rem; font-size: 0.7rem; border-color: var(--gold); color: var(--ink); background: var(--parchment);" title="Sugerir traducción automática usando MyMemory">🤖 Sugerir traducción</button>
+          </div>
+          <textarea class="t-area translation" id="translationText" placeholder="Escribe tu traducción aquí o usa el botón Sugerir traducción…"></textarea>
+        </div>
+        <div>
+          <div class="field-label">Notas</div>
+          <textarea class="t-area" id="notesText" rows="2" placeholder="Notas, dudas, observaciones…" style="min-height:70px"></textarea>
+        </div>
+      </div>
+      <button class="save-btn" id="saveBtn" onclick="savePage()">Guardar traducción</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  const BOOK_ID = parseInt(document.body.dataset.bookId);
+  let pages = [];
+  let currentPageId = null;
+  let saveTimer = null;
+  
+  let currentZoom = 1;
+  let currentRotation = 0;
+
+  // ── API ──────────────────────────────────────────────────────────────────
+  async function api(url, opts = {}) {
+    const res = await fetch(url, {
+      headers: opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {},
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Error');
+    }
+    return res.json();
+  }
+
+  function toast(msg, type = 'success') {
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = msg;
+    document.getElementById('toastContainer').appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // ── Load pages ────────────────────────────────────────────────────────────
+  async function loadPages() {
+    pages = await api(`/api/books/${BOOK_ID}/pages`);
+    renderPageList();
+    document.getElementById('pageCount').textContent = `${pages.length} página${pages.length !== 1 ? 's' : ''}`;
+  }
+
+  function renderPageList() {
+    const list = document.getElementById('pageList');
+    if (!pages.length) {
+      list.innerHTML = `<div style="padding:.8rem;font-size:.78rem;color:var(--muted);text-align:center">Sin páginas</div>`;
+      return;
+    }
+    list.innerHTML = pages.map(p => `
+      <div class="page-thumb ${p.id === currentPageId ? 'active' : ''}" onclick="selectPage(${p.id})">
+        <div class="status-dot dot-${p.status}"></div>
+        <img src="${p.image_url}" alt="p${p.page_number}" loading="lazy">
+        <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Pág. ${p.page_number}</span>
+        <div class="reorder-actions" onclick="event.stopPropagation()">
+          <button class="reorder-btn" onclick="movePageUp(${p.id})" title="Subir página">▲</button>
+          <button class="reorder-btn" onclick="movePageDown(${p.id})" title="Bajar página">▼</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderImagePanel(page) {
+    document.getElementById('imagePanel').innerHTML = `
+      <div class="image-controls">
+        <button class="control-btn" onclick="zoomImage(0.1)" title="Acercar">➕</button>
+        <button class="control-btn" onclick="zoomImage(-0.1)" title="Alejar">➖</button>
+        <button class="control-btn" onclick="rotateImage()" title="Rotar 90°">🔄</button>
+        <button class="control-btn" onclick="resetImage()" title="Restablecer">🏠</button>
+      </div>
+      <div class="image-viewport" id="imageViewport">
+        <img src="${page.image_url}" alt="Página ${page.page_number}" id="mainImage" style="transform: scale(${currentZoom}) rotate(${currentRotation}deg);"/>
+      </div>
+      <div class="image-footer-info">${page.image_filename}</div>
+    `;
+  }
+
+  // ── Select page ───────────────────────────────────────────────────────────
+  function selectPage(id) {
+    currentPageId = id;
+    const page = pages.find(p => p.id === id);
+    if (!page) return;
+    renderPageList();
+
+    // Reset zoom and rotation for the new page
+    currentZoom = 1;
+    currentRotation = 0;
+    renderImagePanel(page);
+
+    // Translation fields
+    document.getElementById('pageLabel').textContent = `Página ${page.page_number}`;
+    document.getElementById('originalText').value = page.original_text;
+    document.getElementById('translationText').value = page.translation;
+    document.getElementById('notesText').value = page.notes;
+    updateStatusSelect(page.status);
+
+    // Mobile: open panel
+    document.getElementById('translationPanel').classList.add('open');
+  }
+
+  function updateStatusSelect(status) {
+    const select = document.getElementById('statusSelect');
+    if (select) {
+      select.value = status;
+      select.className = `status-select ${status}`;
+    }
+  }
+
+  // ── Save page ──────────────────────────────────────────────────────────────
+  async function savePage() {
+    if (!currentPageId) return;
+    const btn = document.getElementById('saveBtn');
+    
+    // Auto-update status select to done if there is translation and it was pending
+    const select = document.getElementById('statusSelect');
+    const translation = document.getElementById('translationText').value.trim();
+    if (translation && select.value === 'pending') {
+      select.value = 'done';
+      select.className = `status-select done`;
+    }
+    
+    const payload = {
+      original_text: document.getElementById('originalText').value,
+      translation: document.getElementById('translationText').value,
+      notes: document.getElementById('notesText').value,
+      status: select.value,
+    };
+    try {
+      const updated = await api(`/api/pages/${currentPageId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      // Update local state
+      const idx = pages.findIndex(p => p.id === currentPageId);
+      if (idx !== -1) pages[idx] = updated;
+      updateStatusSelect(updated.status);
+      renderPageList();
+      btn.textContent = '✓ Guardado';
+      btn.classList.add('saved');
+      setTimeout(() => { btn.textContent = 'Guardar traducción'; btn.classList.remove('saved'); }, 2000);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // Auto-save on Ctrl+S
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      savePage();
+    }
+  });
+
+  // ── Interactive status change ─────────────────────────────────────────────
+  async function changeStatus() {
+    if (!currentPageId) return;
+    const select = document.getElementById('statusSelect');
+    const status = select.value;
+    try {
+      const updated = await api(`/api/pages/${currentPageId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      const idx = pages.findIndex(p => p.id === currentPageId);
+      if (idx !== -1) pages[idx] = updated;
+      updateStatusSelect(updated.status);
+      renderPageList();
+      toast('Estado actualizado');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // ── Image Zoom & Rotate ───────────────────────────────────────────────────
+  function zoomImage(amount) {
+    const img = document.getElementById('mainImage');
+    if (!img) return;
+    currentZoom = Math.max(0.3, Math.min(4, currentZoom + amount));
+    applyImageTransform();
+  }
+
+  function rotateImage() {
+    const img = document.getElementById('mainImage');
+    if (!img) return;
+    currentRotation = (currentRotation + 90) % 360;
+    applyImageTransform();
+  }
+
+  function resetImage() {
+    const img = document.getElementById('mainImage');
+    if (!img) return;
+    currentZoom = 1;
+    currentRotation = 0;
+    applyImageTransform();
+  }
+
+  function applyImageTransform() {
+    const img = document.getElementById('mainImage');
+    if (img) {
+      img.style.transform = `scale(${currentZoom}) rotate(${currentRotation}deg)`;
+    }
+  }
+
+  // ── OCR client-side with Tesseract.js ─────────────────────────────────────
+  async function performOCR() {
+    const img = document.getElementById('mainImage');
+    if (!img) {
+      toast('No hay imagen cargada para escanear', 'error');
+      return;
+    }
+
+    const ocrBtn = document.getElementById('ocrBtn');
+    const originalText = document.getElementById('originalText');
+    const originalBtnText = ocrBtn.innerHTML;
+
+    ocrBtn.disabled = true;
+    ocrBtn.innerHTML = '⌛ Iniciando...';
+    toast('Iniciando reconocimiento de texto (OCR)...');
+
+    try {
+      const LANG_MAP = {
+        'English': 'eng',
+        'French': 'fra',
+        'German': 'deu',
+        'Italian': 'ita',
+        'Portuguese': 'por',
+        'Spanish': 'spa'
+      };
+      const bookSourceLang = "{{ book.source_language }}";
+      const ocrLang = LANG_MAP[bookSourceLang] || 'eng';
+
+      const result = await Tesseract.recognize(
+        img.src,
+        ocrLang,
+        {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              ocrBtn.innerHTML = `⌛ OCR ${Math.round(m.progress * 100)}%`;
+            }
+          }
+        }
+      );
+
+      const text = result.data.text;
+      if (text && text.trim()) {
+        originalText.value = text.trim();
+        toast('Texto original extraído ✓');
+      } else {
+        toast('No se detectó texto en la imagen', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      toast('Error en el reconocimiento de texto', 'error');
+    } finally {
+      ocrBtn.disabled = false;
+      ocrBtn.innerHTML = '🔍 Escanear texto';
+    }
+  }
+
+  // ── Translation suggestion with MyMemory API ──────────────────────────────
+  async function suggestTranslation() {
+    const orig = document.getElementById('originalText').value.trim();
+    if (!orig) {
+      toast('No hay texto original para traducir', 'error');
+      return;
+    }
+
+    const transBtn = document.getElementById('transBtn');
+    const translationText = document.getElementById('translationText');
+    const originalBtnText = transBtn.innerHTML;
+
+    transBtn.disabled = true;
+    transBtn.innerHTML = '⌛ Traduciendo...';
+    toast('Obteniendo traducción automática...');
+
+    try {
+      const ISO_MAP = {
+        'English': 'en',
+        'Spanish': 'es',
+        'French': 'fr',
+        'German': 'de',
+        'Italian': 'it',
+        'Portuguese': 'pt'
+      };
+
+      const srcIso = ISO_MAP["{{ book.source_language }}"] || 'en';
+      const tgtIso = ISO_MAP["{{ book.target_language }}"] || 'es';
+
+      // MyMemory has a max query length of 500 characters.
+      // We chunk the text by paragraphs to avoid translation failure.
+      const maxLen = 450;
+      let chunks = [];
+      let current = "";
+      
+      orig.split('\n').forEach(line => {
+        if ((current + '\n' + line).length > maxLen) {
+          if (current) chunks.push(current.trim());
+          current = line;
+        } else {
+          current = current ? (current + '\n' + line) : line;
+        }
+      });
+      if (current) chunks.push(current.trim());
+
+      let translatedChunks = [];
+      for (const chunk of chunks) {
+        if (!chunk) continue;
+        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk)}&langpair=${srcIso}|${tgtIso}`);
+        if (!res.ok) throw new Error('Error al conectar con MyMemory');
+        const data = await res.json();
+        if (data.responseStatus === 200) {
+          translatedChunks.push(data.responseData.translatedText);
+        } else {
+          throw new Error(data.responseDetails || 'Error de traducción');
+        }
+      }
+
+      translationText.value = translatedChunks.join('\n');
+      toast('Sugerencia de traducción cargada ✓');
+    } catch (e) {
+      console.error(e);
+      toast('Error al sugerir traducción: ' + e.message, 'error');
+    } finally {
+      transBtn.disabled = false;
+      transBtn.innerHTML = '🤖 Sugerir traducción';
+    }
+  }
+
+  // ── Reorder pages ──────────────────────────────────────────────────────────
+  async function movePageUp(id) {
+    const idx = pages.findIndex(p => p.id === id);
+    if (idx <= 0) return; // Already first
+    
+    const current = pages[idx];
+    const prev = pages[idx - 1];
+    
+    const tempNum = current.page_number;
+    current.page_number = prev.page_number;
+    prev.page_number = tempNum;
+    
+    pages.sort((a, b) => a.page_number - b.page_number);
+    renderPageList();
+    
+    await saveNewOrder();
+  }
+
+  async function movePageDown(id) {
+    const idx = pages.findIndex(p => p.id === id);
+    if (idx === -1 || idx >= pages.length - 1) return; // Already last
+    
+    const current = pages[idx];
+    const next = pages[idx + 1];
+    
+    const tempNum = current.page_number;
+    current.page_number = next.page_number;
+    next.page_number = tempNum;
+    
+    pages.sort((a, b) => a.page_number - b.page_number);
+    renderPageList();
+    
+    await saveNewOrder();
+  }
+
+  async function saveNewOrder() {
+    const payload = pages.map(p => ({ id: p.id, page_number: p.page_number }));
+    try {
+      await api(`/api/books/${BOOK_ID}/pages/reorder`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      toast('Orden guardado');
+    } catch (e) {
+      toast('Error al guardar el orden: ' + e.message, 'error');
+      loadPages();
+    }
+  }
+
+  // ── Upload menu ───────────────────────────────────────────────────────────
+  function openUploadMenu() {
+    document.getElementById('uploadModal').classList.add('open');
+  }
+  function closeUploadMenu() {
+    document.getElementById('uploadModal').classList.remove('open');
+  }
+  function triggerGallery() {
+    closeUploadMenu();
+    document.getElementById('fileInputGallery').click();
+  }
+  function triggerCamera() {
+    closeUploadMenu();
+    document.getElementById('fileInputCamera').click();
+  }
+
+  // Cerrar modal al tocar el fondo
+  document.getElementById('uploadModal').addEventListener('click', function(e) {
+    if (e.target === this) closeUploadMenu();
+  });
+
+  // ── Upload handler (shared for both inputs) ────────────────────────────────
+  async function handleFiles(input) {
+    const files = Array.from(input.files);
+    if (!files.length) return;
+
+    // Show uploading toast
+    toast(`Subiendo ${files.length} imagen(es)…`);
+
+    let uploaded = 0;
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('image', file);
+      try {
+        await fetch(`/api/books/${BOOK_ID}/pages`, { method: 'POST', body: fd });
+        uploaded++;
+      } catch (e) {
+        toast(`Error subiendo ${file.name}`, 'error');
+      }
+    }
+
+    if (uploaded > 0) toast(`✓ ${uploaded} imagen(es) subida(s)`);
+    input.value = '';
+    await loadPages();
+    if (pages.length) selectPage(pages[pages.length - 1].id);
+  }
+
+  document.getElementById('fileInputGallery').addEventListener('change', function() { handleFiles(this); });
+  document.getElementById('fileInputCamera').addEventListener('change',  function() { handleFiles(this); });
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadPages();
+</script>
+</body>
+</html>

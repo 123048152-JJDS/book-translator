@@ -1,0 +1,51 @@
+# ── Entorno virtual ──────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Variables de entorno (¡nunca subir!) ─────────────────────────────────────
+.env
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Flask / SQLAlchemy ────────────────────────────────────────────────────────
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Imágenes subidas por el usuario (no versionar) ───────────────────────────
+app/static/uploads/
+
+# ── Archivos Word exportados ──────────────────────────────────────────────────
+*.docx
+
+# ── Migraciones generadas (opcional — comenta si quieres versionar migrations) ─
+# migrations/versions/
+
+# ── Editores / SO ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
